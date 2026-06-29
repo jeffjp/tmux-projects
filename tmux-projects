@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# tmux-projects: create a tmux session for each project you've WORKED ON within
+# the last N days. Projects are auto-discovered: every folder under ROOT is
+# treated as a CATEGORY, and each category's immediate subfolders are projects
+# (layout: ROOT/<category>/<project>). Add a new category and it's picked up
+# automatically, with no edit to this script.
+#
+# "Worked on" means a file in the working tree was modified within the window.
+# The .git folder and common build/dependency folders are ignored, so merely
+# opening, cd-ing into, listing, or running git status in a project does NOT
+# count. Only actually writing to a file does.
+#
+# Known caveat: a heavy `git pull` / `checkout` / `clone` rewrites file
+# timestamps to "now", which can make a repo look freshly edited even if you
+# only pulled. It ages out after the window passes.
+#
+# Re-running this is safe: sessions that already exist are left untouched.
+
+set -u
+
+# ---- config ----------------------------------------------------------------
+# Where your category folders live. The SAME script works on multiple Macs:
+# it uses $DEV_ROOT if that env var is set, otherwise the first of these paths
+# that exists (so a work Mac with ~/Development and a personal Mac with
+# ~/Developer both just work). Edit the list to match your machines.
+DEV_ROOT_CANDIDATES=( "$HOME/Developer" "$HOME/Development" "$HOME/dev" "$HOME/code" )
+DAYS=14                    # "past 2 weeks"
+START_CLAUDE=false         # set true to auto-run `claude` in the left pane of each session
+
+# Category folders to skip entirely (dotfolders like .vscode are always skipped).
+# Add any category you never want sessions for, e.g. EXCLUDE_CATEGORIES=( "archive" ).
+EXCLUDE_CATEGORIES=( )
+# ----------------------------------------------------------------------------
+
+# Resolve the dev root: explicit $DEV_ROOT wins, else first candidate that exists.
+ROOT="${DEV_ROOT:-}"
+if [ -z "$ROOT" ]; then
+  for cand in "${DEV_ROOT_CANDIDATES[@]}"; do
+    [ -d "$cand" ] && { ROOT="$cand"; break; }
+  done
+fi
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+  echo "tmux-projects: no dev root found." >&2
+  echo "  Set DEV_ROOT, or create one of: ${DEV_ROOT_CANDIDATES[*]}" >&2
+  exit 1
+fi
+
+# tmux session names can't contain '.' or ':'; turn those (and spaces) into '-'.
+sanitize() { printf '%s' "$1" | tr ' .:' '---'; }
+
+# True if a category name is in EXCLUDE_CATEGORIES (safe even on bash 3.2 / empty array).
+is_excluded() {
+  local name="$1" ex
+  for ex in "${EXCLUDE_CATEGORIES[@]+"${EXCLUDE_CATEGORIES[@]}"}"; do
+    [ "$name" = "$ex" ] && return 0
+  done
+  return 1
+}
+
+# Active if any working-tree file was modified within DAYS days (noise pruned).
+is_active() {
+  local dir="$1"
+  find "$dir" \
+    \( -path '*/.git' -o -path '*/node_modules' -o -path '*/.terraform' \
+       -o -path '*/target' -o -path '*/build' -o -path '*/dist' \
+       -o -path '*/.venv' -o -path '*/vendor' \) -prune \
+    -o -type f -mtime -"$DAYS" -print 2>/dev/null \
+    | head -1 | grep -q .
+}
+
+# NOTE (optional, not enabled): for GIT repos you can detect activity by the
+# last COMMIT date instead of file mtimes. That is immune to `git pull` /
+# `checkout` rewriting timestamps. To enable, define the helper below and use
+# `if git_recent "$dir" || is_active "$dir"; then` in the scan loop.
+#
+#   git_recent() {   # returns 0 (true) if HEAD was committed within DAYS days
+#     local dir="$1" last now
+#     [ -d "$dir/.git" ] || return 1
+#     last=$(git -C "$dir" log -1 --format=%ct 2>/dev/null) || return 1
+#     now=$(date +%s)
+#     [ -n "$last" ] && [ $(( (now - last) / 86400 )) -lt "$DAYS" ]
+#   }
+
+# Create a detached session: one window, two panes (left = work/claude, right = shell).
+create_session() {
+  local dir="$1" name="$2"
+  if tmux has-session -t "=$name" 2>/dev/null; then
+    echo "  - $name (already running, left as-is)"
+    return
+  fi
+  tmux new-session -d -s "$name" -n work -c "$dir"
+  tmux split-window -h -l 40% -t "$name:work" -c "$dir"   # right pane = 40% wide
+  tmux select-pane -t "$name:work.1"                      # focus the left pane
+  if [ "$START_CLAUDE" = true ]; then
+    tmux send-keys -t "$name:work.1" 'claude' C-m
+  fi
+  echo "  - $name  ->  $dir"
+}
+
+echo "Scanning $ROOT for projects worked on in the last $DAYS days..."
+count=0
+# Outer loop: each CATEGORY folder under ROOT. Inner loop: each PROJECT in it.
+# (If two categories hold a project with the same name, the first one wins and
+# the second is reported as "already running" -- rename one to avoid that.)
+for category in "$ROOT"/*/; do
+  [ -d "$category" ] || continue              # ROOT has no subfolders
+  category="${category%/}"
+  catname="$(basename "$category")"
+  case "$catname" in .*) continue;; esac      # skip dotfolders (.vscode, .git, ...)
+  is_excluded "$catname" && continue
+  for dir in "$category"/*/; do
+    [ -d "$dir" ] || continue                 # category has no projects
+    dir="${dir%/}"
+    projname="$(basename "$dir")"
+    case "$projname" in .*) continue;; esac    # skip dotfolders (.claude, ...)
+    if is_active "$dir"; then
+      create_session "$dir" "$(sanitize "$projname")"
+      count=$((count + 1))
+    fi
+  done
+done
+
+echo ""
+if [ "$count" -eq 0 ]; then
+  echo "No active projects found in the last $DAYS days."
+  exit 0
+fi
+
+echo "$count active session(s) ready:"
+tmux ls
+
+# If we're not already inside tmux, drop straight into the first session.
+if [ -z "${TMUX:-}" ]; then
+  first=$(tmux ls -F '#{session_name}' | head -1)
+  echo ""
+  echo "Attaching to '$first'  (prefix d = detach, prefix s = switch projects)"
+  exec tmux attach -t "$first"
+fi
