@@ -7,12 +7,13 @@ actually worked on recently.
 ## What's here
 
 - **`tmux-projects`** : auto-discovers your projects (and their active Claude
-  worktrees) and opens a two-pane session for each one modified in the last 14 days.
+  worktrees) and opens a two-pane session for each one modified in the last 14 days
+  (a shell on the left, LazyVim on the right).
 - **`tmux.conf`** : beginner-friendly tmux config (mouse on, big scrollback,
   intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard).
   Installs to `~/.tmux.conf`.
 - **`CHEATSHEET.md`** : the keys worth memorizing.
-- **`install.sh`** : symlinks the command onto your PATH and the config into place.
+- **`install.sh`** : symlinks the command onto your PATH, installs the tmux config, and sets up Neovim + LazyVim for the editor pane.
 
 ## Folder convention
 
@@ -46,6 +47,17 @@ so a worktree can open even when the main project is idle (and vice-versa). Gone
 prunable, or locked worktrees are skipped. Because worktrees exist for Claude
 work, they auto-launch `claude` in the left pane when `START_CLAUDE_IN_WORKTREES`
 is `true` — separately from the `START_CLAUDE` toggle for regular projects.
+
+## Editor pane (LazyVim)
+
+The right pane of every session opens **[LazyVim](https://www.lazyvim.org)** (a
+Neovim-based, IDE-like setup) in the project directory, controlled by `OPEN_NVIM`
+(default `true`). `install.sh` installs Neovim, `ripgrep`/`fd`/`lazygit`, and a
+Nerd Font, then drops in the LazyVim starter config.
+
+For icons to render you need a Nerd Font (the installer adds **JetBrainsMono Nerd
+Font**): in Apple Terminal, Settings → Profiles → Text → Font. Set
+`OPEN_NVIM=false` to keep the right pane a plain shell.
 
 ## Install
 
@@ -84,5 +96,6 @@ Edit the config block at the top of `tmux-projects`:
 - `DEV_ROOT_CANDIDATES` : where your projects live. Override via `DEV_ROOT`.
 - `EXCLUDE_CATEGORIES` : top-level folders to never open.
 - `START_CLAUDE` : set `true` to auto-launch `claude` in each project session's left pane.
+- `OPEN_NVIM` : open LazyVim (nvim) in each session's right pane (default `true`).
 - `INCLUDE_WORKTREES` : also open sessions for active Claude worktrees (default `true`).
 - `START_CLAUDE_IN_WORKTREES` : auto-launch `claude` in worktree sessions (default `true`).

@@ -40,6 +40,7 @@ set -u
 DEV_ROOT_CANDIDATES=( "$HOME/Developer" "$HOME/Development" "$HOME/dev" "$HOME/code" )
 DAYS=14                    # "past 2 weeks"
 START_CLAUDE=false         # set true to auto-run `claude` in the left pane of each session
+OPEN_NVIM=true             # open nvim (LazyVim) in the RIGHT pane of each session
 
 # Also open a session for each active Claude Code git worktree. Claude creates
 # these under <repo>/.claude/worktrees/<name> for parallel/isolated work; this
@@ -202,6 +203,9 @@ create_session() {
   tmux select-pane -t "$name:$win.1"                      # focus the left pane
   if [ "$start_claude" = true ]; then
     tmux send-keys -t "$name:$win.1" 'claude' C-m
+  fi
+  if [ "$OPEN_NVIM" = true ]; then
+    tmux send-keys -t "$name:$win.2" 'nvim' C-m
   fi
   echo "  - $name  ->  $dir"
 }
