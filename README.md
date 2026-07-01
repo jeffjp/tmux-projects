@@ -16,13 +16,22 @@ actually worked on recently.
 
 ## Folder convention
 
-Projects live as `<dev-root>/<category>/<project>`, e.g.
-`~/Development/oracle/oci-api`. Each top-level folder is a *category*; each of its
-subfolders is a *project*.
+Two layouts are supported, and the launcher figures out which one a machine uses:
 
-The dev root is detected automatically, so the same checkout works on more than
-one Mac: it uses `$DEV_ROOT` if set, otherwise the first of `~/Developer`,
-`~/Development`, `~/dev`, `~/code` that exists.
+- **nested** — `<dev-root>/<category>/<project>`, e.g. `~/Development/oracle/oci-api`
+  (each top-level folder is a *category*; each of its subfolders is a *project*).
+- **flat** — `<dev-root>/<project>`, e.g. `~/Development/oci-api`
+  (each top-level folder is a *project*).
+
+By default (`LAYOUT=auto`) it decides per top-level folder: a git repo (or a
+folder with no subfolders) is a project, and a folder that *contains* subfolders
+is a category to descend into. So auto also handles a **mixed** root — some loose
+repos alongside some category folders — and the same checkout works unchanged on a
+nested work Mac and a flat personal Mac. Force one interpretation with
+`LAYOUT=flat`/`nested` in the script, or the `DEV_LAYOUT` env var (see *Tweaking*).
+
+The dev root is likewise detected automatically: it uses `$DEV_ROOT` if set,
+otherwise the first of `~/Developer`, `~/Development`, `~/dev`, `~/code` that exists.
 
 ## Install
 
@@ -56,6 +65,8 @@ See `CHEATSHEET.md` for the rest.
 Edit the config block at the top of `tmux-projects`:
 
 - `DAYS` : how far back "recently worked on" reaches (default 14).
-- `DEV_ROOT_CANDIDATES` : where your category folders live.
-- `EXCLUDE_CATEGORIES` : category folders to never open.
+- `LAYOUT` : `auto` (default), `flat`, or `nested`. Override per-machine without
+  editing via the `DEV_LAYOUT` env var, e.g. `DEV_LAYOUT=flat tmux-projects`.
+- `DEV_ROOT_CANDIDATES` : where your projects live. Override via `DEV_ROOT`.
+- `EXCLUDE_CATEGORIES` : top-level folders to never open.
 - `START_CLAUDE` : set `true` to auto-launch `claude` in each session's left pane.

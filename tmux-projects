@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # tmux-projects: create a tmux session for each project you've WORKED ON within
-# the last N days. Projects are auto-discovered: every folder under ROOT is
-# treated as a CATEGORY, and each category's immediate subfolders are projects
-# (layout: ROOT/<category>/<project>). Add a new category and it's picked up
-# automatically, with no edit to this script.
+# the last N days. Projects are auto-discovered under ROOT. Two folder layouts
+# are supported, and the SAME script figures out which one a machine uses:
+#
+#   nested:  ROOT/<category>/<project>   (e.g. a work Mac: ~/Development/oracle/oci-api)
+#   flat:    ROOT/<project>              (e.g. a personal Mac: ~/Development/oci-api)
+#
+# By default LAYOUT=auto decides per top-level folder: a git repo (or a folder
+# with no subfolders) is a PROJECT; a folder that contains subfolders is a
+# CATEGORY whose subfolders are projects. That means auto also handles a MIXED
+# root that has some loose repos alongside some category folders. Force a single
+# interpretation with LAYOUT / the DEV_LAYOUT env var (see config below). Add a
+# new project or category and it's picked up automatically, no edit needed.
 #
 # "Worked on" means a file in the working tree was modified within the window.
 # The .git folder and common build/dependency folders are ignored, so merely
@@ -27,8 +35,17 @@ DEV_ROOT_CANDIDATES=( "$HOME/Developer" "$HOME/Development" "$HOME/dev" "$HOME/c
 DAYS=14                    # "past 2 weeks"
 START_CLAUDE=false         # set true to auto-run `claude` in the left pane of each session
 
-# Category folders to skip entirely (dotfolders like .vscode are always skipped).
-# Add any category you never want sessions for, e.g. EXCLUDE_CATEGORIES=( "archive" ).
+# Folder layout under ROOT. One of: auto | flat | nested.
+#   auto   - decide per top-level folder (git repo/leaf = project, else category).
+#            Handles flat, nested, AND mixed roots. Best default for multiple Macs.
+#   flat   - every top-level folder is a project     (ROOT/<project>).
+#   nested - every top-level folder is a category     (ROOT/<category>/<project>).
+# Override without editing this file via the DEV_LAYOUT env var (like DEV_ROOT).
+LAYOUT="${DEV_LAYOUT:-auto}"
+
+# Top-level folders to skip entirely (dotfolders like .vscode are always skipped).
+# In nested mode these are categories; in flat/auto mode they can also be projects.
+# e.g. EXCLUDE_CATEGORIES=( "archive" ).
 EXCLUDE_CATEGORIES=( )
 # ----------------------------------------------------------------------------
 
@@ -44,6 +61,12 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
   echo "  Set DEV_ROOT, or create one of: ${DEV_ROOT_CANDIDATES[*]}" >&2
   exit 1
 fi
+
+case "$LAYOUT" in
+  auto|flat|nested) ;;
+  *) echo "tmux-projects: invalid LAYOUT '$LAYOUT' (use auto, flat, or nested)." >&2
+     exit 1 ;;
+esac
 
 # tmux session names can't contain '.' or ':'; turn those (and spaces) into '-'.
 sanitize() { printf '%s' "$1" | tr ' .:' '---'; }
@@ -81,6 +104,30 @@ is_active() {
 #     [ -n "$last" ] && [ $(( (now - last) / 86400 )) -lt "$DAYS" ]
 #   }
 
+# True if DIR contains at least one non-dotfolder subdirectory. Used by LAYOUT=auto
+# to tell a category (holds project subfolders) from a flat/leaf project.
+has_subdirs() {
+  local d="$1" sub
+  for sub in "$d"/*/; do
+    [ -d "$sub" ] || continue
+    case "$(basename "$sub")" in .*) continue;; esac
+    return 0
+  done
+  return 1
+}
+
+# Open a session for a single project DIR if it's been worked on recently.
+# Bumps the global $count. Dotfolders are skipped.
+consider_project() {
+  local dir="${1%/}" projname
+  projname="$(basename "$dir")"
+  case "$projname" in .*) return;; esac
+  if is_active "$dir"; then
+    create_session "$dir" "$(sanitize "$projname")"
+    count=$((count + 1))
+  fi
+}
+
 # Create a detached session: one window, two panes (left = work/claude, right = shell).
 create_session() {
   local dir="$1" name="$2"
@@ -97,27 +144,42 @@ create_session() {
   echo "  - $name  ->  $dir"
 }
 
-echo "Scanning $ROOT for projects worked on in the last $DAYS days..."
+echo "Scanning $ROOT for projects worked on in the last $DAYS days (layout: $LAYOUT)..."
 count=0
-# Outer loop: each CATEGORY folder under ROOT. Inner loop: each PROJECT in it.
-# (If two categories hold a project with the same name, the first one wins and
-# the second is reported as "already running" -- rename one to avoid that.)
-for category in "$ROOT"/*/; do
-  [ -d "$category" ] || continue              # ROOT has no subfolders
-  category="${category%/}"
-  catname="$(basename "$category")"
-  case "$catname" in .*) continue;; esac      # skip dotfolders (.vscode, .git, ...)
-  is_excluded "$catname" && continue
-  for dir in "$category"/*/; do
-    [ -d "$dir" ] || continue                 # category has no projects
-    dir="${dir%/}"
-    projname="$(basename "$dir")"
-    case "$projname" in .*) continue;; esac    # skip dotfolders (.claude, ...)
-    if is_active "$dir"; then
-      create_session "$dir" "$(sanitize "$projname")"
-      count=$((count + 1))
-    fi
-  done
+# Walk each top-level folder under ROOT. Depending on LAYOUT it's either a
+# project itself (flat) or a category whose subfolders are projects (nested).
+# (If two projects share a name, the first one wins and the second is reported
+# as "already running" -- rename one to avoid that.)
+for entry in "$ROOT"/*/; do
+  [ -d "$entry" ] || continue                 # ROOT has no subfolders
+  entry="${entry%/}"
+  name="$(basename "$entry")"
+  case "$name" in .*) continue;; esac          # skip dotfolders (.vscode, .git, ...)
+  is_excluded "$name" && continue
+
+  # Decide whether this top-level folder is a category (descend one level) or a
+  # project (use it directly).
+  case "$LAYOUT" in
+    flat)   is_category=false ;;
+    nested) is_category=true ;;
+    auto)
+      if [ -d "$entry/.git" ]; then
+        is_category=false                     # a repo is a project, not a category
+      elif has_subdirs "$entry"; then
+        is_category=true                      # holds subfolders -> category
+      else
+        is_category=false                     # leaf folder -> treat as a project
+      fi ;;
+  esac
+
+  if [ "$is_category" = true ]; then
+    for dir in "$entry"/*/; do
+      [ -d "$dir" ] || continue               # category has no projects
+      consider_project "$dir"
+    done
+  else
+    consider_project "$entry"
+  fi
 done
 
 echo ""
