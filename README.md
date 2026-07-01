@@ -6,8 +6,8 @@ actually worked on recently.
 
 ## What's here
 
-- **`tmux-projects`** : auto-discovers your projects and opens a session (two
-  panes) for each one with a file modified in the last 14 days.
+- **`tmux-projects`** : auto-discovers your projects (and their active Claude
+  worktrees) and opens a two-pane session for each one modified in the last 14 days.
 - **`tmux.conf`** : beginner-friendly tmux config (mouse on, big scrollback,
   intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard).
   Installs to `~/.tmux.conf`.
@@ -32,6 +32,20 @@ nested work Mac and a flat personal Mac. Force one interpretation with
 
 The dev root is likewise detected automatically: it uses `$DEV_ROOT` if set,
 otherwise the first of `~/Developer`, `~/Development`, `~/dev`, `~/code` that exists.
+
+## Claude Code worktrees
+
+When `INCLUDE_WORKTREES` is on (the default), each repo is also asked — via
+`git worktree list` — for the isolated worktrees Claude Code creates under
+`<repo>/.claude/worktrees/`. Recently-touched ones get their own session named
+`<project>-<worktree>` (e.g. `slamlabs-site-hardcore-gagarin-40f5b2`), so they
+sort right under their parent repo in `tmux ls` / `prefix s`.
+
+A worktree is judged active on its **own** files, independent of the parent repo,
+so a worktree can open even when the main project is idle (and vice-versa). Gone,
+prunable, or locked worktrees are skipped. Because worktrees exist for Claude
+work, they auto-launch `claude` in the left pane when `START_CLAUDE_IN_WORKTREES`
+is `true` — separately from the `START_CLAUDE` toggle for regular projects.
 
 ## Install
 
@@ -69,4 +83,6 @@ Edit the config block at the top of `tmux-projects`:
   editing via the `DEV_LAYOUT` env var, e.g. `DEV_LAYOUT=flat tmux-projects`.
 - `DEV_ROOT_CANDIDATES` : where your projects live. Override via `DEV_ROOT`.
 - `EXCLUDE_CATEGORIES` : top-level folders to never open.
-- `START_CLAUDE` : set `true` to auto-launch `claude` in each session's left pane.
+- `START_CLAUDE` : set `true` to auto-launch `claude` in each project session's left pane.
+- `INCLUDE_WORKTREES` : also open sessions for active Claude worktrees (default `true`).
+- `START_CLAUDE_IN_WORKTREES` : auto-launch `claude` in worktree sessions (default `true`).

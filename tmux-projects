@@ -18,6 +18,12 @@
 # opening, cd-ing into, listing, or running git status in a project does NOT
 # count. Only actually writing to a file does.
 #
+# Claude Code worktrees: when INCLUDE_WORKTREES is on, each repo is also asked
+# (via `git worktree list`) for the isolated worktrees Claude creates under
+# <repo>/.claude/worktrees/, and the recently-touched ones get their own session
+# named <project>-<worktree>. Worktree activity is judged on its own files, so a
+# worktree can open even when its parent repo is otherwise idle.
+#
 # Known caveat: a heavy `git pull` / `checkout` / `clone` rewrites file
 # timestamps to "now", which can make a repo look freshly edited even if you
 # only pulled. It ages out after the window passes.
@@ -34,6 +40,16 @@ set -u
 DEV_ROOT_CANDIDATES=( "$HOME/Developer" "$HOME/Development" "$HOME/dev" "$HOME/code" )
 DAYS=14                    # "past 2 weeks"
 START_CLAUDE=false         # set true to auto-run `claude` in the left pane of each session
+
+# Also open a session for each active Claude Code git worktree. Claude creates
+# these under <repo>/.claude/worktrees/<name> for parallel/isolated work; this
+# opens the recently-touched ones as their own sessions, named <project>-<worktree>
+# so they sort right under their parent repo in `tmux ls`.
+INCLUDE_WORKTREES=true
+# Worktrees are made FOR Claude work, so they can auto-launch `claude` even when
+# plain projects don't. This governs worktree sessions only (START_CLAUDE governs
+# regular project sessions).
+START_CLAUDE_IN_WORKTREES=true
 
 # Folder layout under ROOT. One of: auto | flat | nested.
 #   auto   - decide per top-level folder (git repo/leaf = project, else category).
@@ -81,12 +97,14 @@ is_excluded() {
 }
 
 # Active if any working-tree file was modified within DAYS days (noise pruned).
+# .claude/worktrees is pruned too, so a repo's own activity is judged separately
+# from its worktrees (each worktree gets its own is_active check on its own dir).
 is_active() {
   local dir="$1"
   find "$dir" \
-    \( -path '*/.git' -o -path '*/node_modules' -o -path '*/.terraform' \
-       -o -path '*/target' -o -path '*/build' -o -path '*/dist' \
-       -o -path '*/.venv' -o -path '*/vendor' \) -prune \
+    \( -path '*/.git' -o -path '*/.claude/worktrees' -o -path '*/node_modules' \
+       -o -path '*/.terraform' -o -path '*/target' -o -path '*/build' \
+       -o -path '*/dist' -o -path '*/.venv' -o -path '*/vendor' \) -prune \
     -o -type f -mtime -"$DAYS" -print 2>/dev/null \
     | head -1 | grep -q .
 }
@@ -116,8 +134,44 @@ has_subdirs() {
   return 1
 }
 
-# Open a session for a single project DIR if it's been worked on recently.
-# Bumps the global $count. Dotfolders are skipped.
+# Open a session for one recently-touched worktree PATH belonging to REPO.
+# Skips prunable/vanished worktrees; names the session <project>-<worktree>.
+open_worktree() {
+  local repo="$1" path="$2" prunable="$3" name
+  [ "$prunable" = true ] && return
+  [ -d "$path" ] || return                     # worktree dir gone
+  is_active "$path" || return                  # not touched within the window
+  name="$(sanitize "$(basename "$repo")-$(basename "$path")")"
+  create_session "$path" "$name" worktree
+  count=$((count + 1))
+}
+
+# Open sessions for REPO's active Claude worktrees (those under .claude/worktrees).
+# git worktree list is authoritative -- it reflects pruning, unlike .claude.json.
+consider_worktrees() {
+  local repo="$1" line path prunable
+  [ "$INCLUDE_WORKTREES" = true ] || return
+  [ -e "$repo/.git" ] || return                # not a git repo -> no worktrees
+  path=""; prunable=false
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*)
+        # A new record began; flush the previous one first.
+        [ -n "$path" ] && case "$path" in
+          *"/.claude/worktrees/"*) open_worktree "$repo" "$path" "$prunable" ;;
+        esac
+        path="${line#worktree }"; prunable=false ;;
+      "prunable"*) prunable=true ;;
+    esac
+  done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+  # Flush the final record (porcelain output may not end with a blank line).
+  [ -n "$path" ] && case "$path" in
+    *"/.claude/worktrees/"*) open_worktree "$repo" "$path" "$prunable" ;;
+  esac
+}
+
+# Open a session for a single project DIR if it's been worked on recently, then
+# open sessions for its active Claude worktrees. Bumps $count. Dotfolders skipped.
 consider_project() {
   local dir="${1%/}" projname
   projname="$(basename "$dir")"
@@ -126,20 +180,28 @@ consider_project() {
     create_session "$dir" "$(sanitize "$projname")"
     count=$((count + 1))
   fi
+  consider_worktrees "$dir"
 }
 
 # Create a detached session: one window, two panes (left = work/claude, right = shell).
+# KIND is "project" (default) or "worktree"; it picks the window name and which
+# START_CLAUDE* toggle decides whether to auto-launch claude in the left pane.
 create_session() {
-  local dir="$1" name="$2"
+  local dir="$1" name="$2" kind="${3:-project}" win start_claude
+  if [ "$kind" = worktree ]; then
+    win="wt"; start_claude="$START_CLAUDE_IN_WORKTREES"
+  else
+    win="work"; start_claude="$START_CLAUDE"
+  fi
   if tmux has-session -t "=$name" 2>/dev/null; then
     echo "  - $name (already running, left as-is)"
     return
   fi
-  tmux new-session -d -s "$name" -n work -c "$dir"
-  tmux split-window -h -l 40% -t "$name:work" -c "$dir"   # right pane = 40% wide
-  tmux select-pane -t "$name:work.1"                      # focus the left pane
-  if [ "$START_CLAUDE" = true ]; then
-    tmux send-keys -t "$name:work.1" 'claude' C-m
+  tmux new-session -d -s "$name" -n "$win" -c "$dir"
+  tmux split-window -h -l 40% -t "$name:$win" -c "$dir"   # right pane = 40% wide
+  tmux select-pane -t "$name:$win.1"                      # focus the left pane
+  if [ "$start_claude" = true ]; then
+    tmux send-keys -t "$name:$win.1" 'claude' C-m
   fi
   echo "  - $name  ->  $dir"
 }
@@ -184,7 +246,7 @@ done
 
 echo ""
 if [ "$count" -eq 0 ]; then
-  echo "No active projects found in the last $DAYS days."
+  echo "No active projects or worktrees found in the last $DAYS days."
   exit 0
 fi
 
