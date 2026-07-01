@@ -12,7 +12,8 @@ actually worked on recently.
 - **`tmux.conf`** : beginner-friendly tmux config (mouse on, big scrollback,
   intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard).
   Installs to `~/.tmux.conf`.
-- **`CHEATSHEET.md`** : the keys worth memorizing.
+- **`CHEATSHEET.md`** : the tmux keys worth memorizing.
+- **`LAZYVIM.md`** : LazyVim survival guide + a VSCode-to-LazyVim keymap cheatsheet.
 - **`install.sh`** : symlinks the command onto your PATH, installs the tmux config, and sets up Neovim + LazyVim for the editor pane.
 
 ## Folder convention
@@ -58,6 +59,10 @@ Nerd Font, then drops in the LazyVim starter config.
 For icons to render you need a Nerd Font (the installer adds **JetBrainsMono Nerd
 Font**): in Apple Terminal, Settings → Profiles → Text → Font. Set
 `OPEN_NVIM=false` to keep the right pane a plain shell.
+
+New to LazyVim? See **`LAZYVIM.md`** for a survival guide and a VSCode-to-LazyVim
+keymap cheatsheet. The one thing to remember: the leader key is `Space`, and
+pressing `Space` (then pausing) shows a menu of every command.
 
 ## Install
 
