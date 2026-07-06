@@ -83,8 +83,31 @@ project switcher, and each project's Claude session keeps running on its own.
 |------|--------|
 | `prefix [` | enter scroll/copy mode (then arrows / PgUp) |
 | scroll wheel | scroll back (mouse is on) |
-| `v` then `y` | (in copy mode) select, then copy to macOS clipboard |
 | `q` | leave copy mode |
+
+Copy mode works even in a pane running Claude Code or Neovim: tmux freezes
+the pane and takes over the keyboard, so nothing you type reaches the app.
+A position counter like `[0/1234]` appears top-right while you're in it.
+
+Move around (vi keys):
+| Keys | Action |
+|------|--------|
+| `h/j/k/l` | move by character / line (arrows work too) |
+| `w` / `b` | jump forward / back by word |
+| `Ctrl-u` / `Ctrl-d` | half a page up / down |
+| `g` / `G` | very top of scrollback / back to bottom |
+| `/text` then `Enter` | search; `n` / `N` for next / previous match |
+
+Select and copy:
+| Keys | Action |
+|------|--------|
+| `v` | start selecting, then move to extend the highlight |
+| `V` | select whole lines (good for blocks of output) |
+| `y` | copy selection to macOS clipboard and exit copy mode |
+| `q` or `Esc` | exit without copying |
+
+After `y` the highlight disappears because copy mode exits. That's expected:
+the text is on your clipboard, paste with `Cmd+V`.
 
 ## When something feels stuck
 
