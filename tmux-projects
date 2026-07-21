@@ -39,8 +39,8 @@ set -u
 # ~/Developer both just work). Edit the list to match your machines.
 DEV_ROOT_CANDIDATES=( "$HOME/Developer" "$HOME/Development" "$HOME/dev" "$HOME/code" )
 DAYS=14                    # "past 2 weeks"
-START_CLAUDE=false         # set true to auto-run `claude` in the left pane of each session
-OPEN_NVIM=true             # open nvim (LazyVim) in the RIGHT pane of each session
+START_CLAUDE=false         # set true to auto-run `claude` in each session
+OPEN_NVIM=false            # set true to add a RIGHT pane (40%) running nvim (LazyVim)
 
 # Also open a session for each active Claude Code git worktree. Claude creates
 # these under <repo>/.claude/worktrees/<name> for parallel/isolated work; this
@@ -184,9 +184,10 @@ consider_project() {
   consider_worktrees "$dir"
 }
 
-# Create a detached session: one window, two panes (left = work/claude, right = shell).
+# Create a detached session: one window with a single pane. With OPEN_NVIM=true
+# a second 40%-wide pane running nvim (LazyVim) is split off on the right.
 # KIND is "project" (default) or "worktree"; it picks the window name and which
-# START_CLAUDE* toggle decides whether to auto-launch claude in the left pane.
+# START_CLAUDE* toggle decides whether to auto-launch claude in the main pane.
 create_session() {
   local dir="$1" name="$2" kind="${3:-project}" win start_claude
   if [ "$kind" = worktree ]; then
@@ -199,13 +200,13 @@ create_session() {
     return
   fi
   tmux new-session -d -s "$name" -n "$win" -c "$dir"
-  tmux split-window -h -l 40% -t "$name:$win" -c "$dir"   # right pane = 40% wide
-  tmux select-pane -t "$name:$win.1"                      # focus the left pane
+  if [ "$OPEN_NVIM" = true ]; then
+    tmux split-window -h -l 40% -t "$name:$win" -c "$dir" # right pane = 40% wide
+    tmux send-keys -t "$name:$win.2" 'nvim' C-m
+    tmux select-pane -t "$name:$win.1"                    # focus back on the main pane
+  fi
   if [ "$start_claude" = true ]; then
     tmux send-keys -t "$name:$win.1" 'claude' C-m
-  fi
-  if [ "$OPEN_NVIM" = true ]; then
-    tmux send-keys -t "$name:$win.2" 'nvim' C-m
   fi
   echo "  - $name  ->  $dir"
 }
