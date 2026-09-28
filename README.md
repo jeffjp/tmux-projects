@@ -11,6 +11,7 @@ actually worked on recently.
 - **`tmux.conf`** : beginner-friendly tmux config (mouse on, big scrollback,
   intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard).
   Installs to `~/.tmux.conf`.
+- **`net-status`** : tmux status segment showing which link carries traffic (`eth`, `wifi`, `vpn/eth`, `vpn/wifi`; a red `vpn/wifi!` means a VPN is riding Wi-Fi while Ethernet is up, so a Wi-Fi drop kills the VPN). Linked by `install.sh`, used in `status-right`.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
 - **`LAZYVIM.md`** : LazyVim survival guide + a VSCode-to-LazyVim keymap cheatsheet.
 - **`install.sh`** : symlinks the command onto your PATH, installs the tmux config, and sets up Neovim + LazyVim for the optional editor pane.
