@@ -54,6 +54,7 @@ project switcher, and each project's Claude session keeps running on its own.
 | `tmux ls` | list sessions |
 | `prefix d` | detach (leaves it running) |
 | `prefix s` | switch session (visual list) |
+| `prefix g` | jump to the hub session (`ocp-construct`) from anywhere |
 | `prefix $` | rename current session |
 
 ### Windows (tabs)
@@ -74,9 +75,15 @@ project switcher, and each project's Claude session keeps running on its own.
 | `prefix h/j/k/l` | move between panes (or arrow keys) |
 | `prefix z` | zoom pane fullscreen (toggle) |
 | `prefix x` | close current pane |
+| `prefix q` | flash pane numbers for 2.5 s; press a number to jump there |
 | `prefix {` / `prefix }` | swap pane position |
 | `prefix space` | cycle through layouts |
 | mouse | click a pane to focus, drag border to resize |
+
+The focused pane has a bright blue heavy border, a solid blue label on its
+top edge (`> N  title (dir)`), and normal background; other panes are dimmed
+with a grey border and grey label. Comment out the two `window-style` lines
+in `tmux.conf` to turn off the dimming.
 
 ### Scrolling & copying
 | Keys | Action |
