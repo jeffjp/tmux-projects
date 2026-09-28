@@ -1,7 +1,7 @@
 # LazyVim cheatsheet (the editor pane)
 
-`tmux-projects` opens **LazyVim** (a batteries-included, VSCode-like Neovim
-setup) in the right pane of each session. This is the survival guide.
+**LazyVim** is a batteries-included, VSCode-like Neovim setup; `install.sh`
+installs it, and `nvim` opens it in any pane. This is the survival guide.
 
 ## The two things that matter most
 
@@ -50,6 +50,5 @@ setup) in the right pane of each session. This is the survival guide.
 
 - Icons need a Nerd Font: set the terminal font to **JetBrainsMono Nerd Font**
   (Apple Terminal: Settings → Profiles → Text → Font).
-- `nvim` opens in the project's directory, so find-file and grep are scoped to it.
-- Don't want the editor pane? Set `OPEN_NVIM=false` in `tmux-projects`.
+- `nvim` opens in the pane's current directory, so find-file and grep are scoped to it.
 - Official docs: <https://www.lazyvim.org> (keymaps: <https://www.lazyvim.org/keymaps>).
