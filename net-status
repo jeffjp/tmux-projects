@@ -1,0 +1,52 @@
+#!/bin/sh
+# net-status: one tmux status segment showing which link carries traffic.
+#   eth        Ethernet is the primary link
+#   wifi       Wi-Fi is the primary link (yellow if Ethernet is also up)
+#   vpn/eth    a VPN tunnel is up and rides over Ethernet
+#   vpn/wifi   a VPN tunnel rides over Wi-Fi: red when Ethernet is also up,
+#              because a Wi-Fi drop will take the VPN down (reconnect the VPN
+#              or turn Wi-Fi off while docked)
+#   offline    no default route
+# Usage: #(~/.local/bin/net-status) in tmux status-right; plain text with
+# --plain. Read-only: route, netstat, networksetup, ifconfig. macOS only.
+
+plain=""; [ "${1:-}" = "--plain" ] && plain=1
+c() { [ -n "$plain" ] && return; printf '#[fg=%s]' "$1"; }
+end() { [ -n "$plain" ] || printf '#[default]'; }
+
+# interface -> kind (wifi / eth) from macOS hardware port names
+kind_of() {
+  port=$(networksetup -listallhardwareports 2>/dev/null | awk -v d="$1" '/^Hardware Port:/{p=substr($0,16)} $0=="Device: " d {print p; exit}')
+  case "$port" in
+    Wi-Fi|AirPort) echo wifi ;;
+    "") echo "$1" ;;
+    *) echo eth ;;
+  esac
+}
+active() { ifconfig "$1" 2>/dev/null | grep -q "status: active"; }
+
+def=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+[ -n "$def" ] || { c colour160; printf 'offline'; end; exit 0; }
+
+# any active wired port (en*, not Wi-Fi) with an address
+eth_up=""
+for i in $(networksetup -listallhardwareports 2>/dev/null | awk '/^Device: en/{print $2}'); do
+  [ "$(kind_of "$i")" = eth ] || continue
+  active "$i" && ifconfig "$i" | grep -q "inet " && { eth_up=$i; break; }
+done
+
+case "$def" in
+  utun*|ppp*|ipsec*)
+    # the tunnel's own traffic: a host route (flag H) to a public address via a physical port
+    under=$(netstat -rn -f inet 2>/dev/null | awk '$3 ~ /H/ && $NF ~ /^en/ && $1 !~ /^(10\.|127\.|169\.254|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|224\.|255\.)/ {print $NF; exit}')
+    k=$(kind_of "${under:-?}")
+    if [ "$k" = wifi ] && [ -n "$eth_up" ]; then c colour160; printf 'vpn/wifi!'
+    elif [ "$k" = wifi ]; then c colour178; printf 'vpn/wifi'
+    else c colour34; printf 'vpn/%s' "$k"; fi ;;
+  *)
+    k=$(kind_of "$def")
+    if [ "$k" = wifi ] && [ -n "$eth_up" ]; then c colour178; printf 'wifi'
+    elif [ "$k" = wifi ]; then c colour250; printf 'wifi'
+    else c colour34; printf '%s' "$k"; fi ;;
+esac
+end

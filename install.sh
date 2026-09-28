@@ -9,6 +9,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 bindir="$HOME/.local/bin"
 mkdir -p "$bindir"
 ln -sf "$here/tmux-projects" "$bindir/tmux-projects"
+ln -sf "$here/net-status" "$bindir/net-status"   # tmux status segment: which link carries traffic
 echo "linked $bindir/tmux-projects -> $here/tmux-projects"
 case ":$PATH:" in
   *":$bindir:"*) ;;
