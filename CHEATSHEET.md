@@ -13,7 +13,7 @@ Below, `prefix` means "press Ctrl-b first." So `prefix |` = Ctrl-b, then `|`.
 
 ```
 server                 (one background process; survives terminal closing)
-└── session            (one per project, e.g. "api", "webapp")
+└── session            (one: the construct, "ocp-construct" or "construct")
     └── window         (like a browser tab; full screen)
         └── pane       (a split within a window)
 ```
@@ -41,8 +41,11 @@ tmux attach -t api       # or: tmux a -t api
 prefix s                 # pick from a list
 ```
 
-One session per project is the recommended pattern: `tmux ls` becomes your
-project switcher, and each project's Claude session keeps running on its own.
+These days one session does it all: the construct (`ocp-construct` on the
+work Mac, `construct` on the personal Mac) has an `operator` window plus one
+window per job, so `prefix w` / `prefix <n>` is the switcher and `prefix g`
+gets you back to it from anywhere. The raw session commands above still work
+for anything outside it.
 
 ## Essential keys
 
@@ -54,7 +57,7 @@ project switcher, and each project's Claude session keeps running on its own.
 | `tmux ls` | list sessions |
 | `prefix d` | detach (leaves it running) |
 | `prefix s` | switch session (visual list) |
-| `prefix g` | jump to the hub session (`ocp-construct`) from anywhere |
+| `prefix g` | jump to the construct session (`ocp-construct`, else `construct`) from anywhere |
 | `prefix $` | rename current session |
 
 ### Windows (tabs)

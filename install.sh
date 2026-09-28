@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Install tmux-projects: put the command on your PATH and the tmux config
-# in place. Safe to re-run. Backs up any existing real ~/.tmux.conf.
+# Install Jeff's tmux setup: link the tmux config and the net-status helper,
+# and set up Neovim + LazyVim. Safe to re-run. Backs up any existing real
+# ~/.tmux.conf.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
 
-# 1) Make `tmux-projects` runnable from anywhere via a personal bin dir.
+# 1) Put the helpers on your PATH via a personal bin dir.
 bindir="$HOME/.local/bin"
 mkdir -p "$bindir"
-ln -sf "$here/tmux-projects" "$bindir/tmux-projects"
 ln -sf "$here/net-status" "$bindir/net-status"   # tmux status segment: which link carries traffic
-echo "linked $bindir/tmux-projects -> $here/tmux-projects"
+echo "linked $bindir/net-status -> $here/net-status"
+# The session-per-project launcher was retired 2026-09-28; drop its old link
+# if it still points into this checkout.
+if [ -L "$bindir/tmux-projects" ] && [ ! -e "$bindir/tmux-projects" -o "$(readlink "$bindir/tmux-projects")" = "$here/tmux-projects" ]; then
+  rm -f "$bindir/tmux-projects" && echo "removed old launcher link $bindir/tmux-projects"
+fi
 case ":$PATH:" in
   *":$bindir:"*) ;;
   *)
@@ -29,9 +34,9 @@ fi
 ln -sf "$here/tmux.conf" "$target"
 echo "linked $target -> $here/tmux.conf"
 
-# 3) Neovim + LazyVim for the editor pane. tmux-projects opens `nvim` in the
-#    right pane by default (OPEN_NVIM). This installs Neovim + tools + a Nerd
-#    Font and drops in the LazyVim starter, without clobbering an existing config.
+# 3) Neovim + LazyVim (optional editor; run `nvim` in any pane). This installs
+#    Neovim + tools + a Nerd Font and drops in the LazyVim starter, without
+#    clobbering an existing config.
 if command -v brew >/dev/null 2>&1; then
   echo ""
   echo "Setting up Neovim + LazyVim (editor pane)..."
@@ -56,4 +61,4 @@ fi
 
 echo ""
 echo "Done. If tmux isn't installed yet:  brew install tmux"
-echo "Then run:  tmux-projects"
+echo "Then reload tmux:  tmux source-file ~/.tmux.conf   (or prefix r)"

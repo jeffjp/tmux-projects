@@ -1,106 +1,56 @@
 # tmux-projects
 
-A small tmux setup for juggling many projects at once: a friendly `tmux.conf`
-plus `tmux-projects`, a launcher that opens one tmux session per project you've
-actually worked on recently.
+Jeff's tmux config and small helpers, shared by the work Mac and the personal
+Mac (both symlink `~/.tmux.conf` to this checkout).
+
+Sessions and windows are no longer organized one per project. On both Macs a
+**construct** (a Claude Code operator setup) owns the tmux layout: one session,
+an `operator` window where work starts, and one window per job. The work Mac's
+session is `ocp-construct`, the personal Mac's is `construct`; `prefix g` jumps
+to whichever one is running. The session-per-project launcher that used to
+live here was retired on 2026-09-28.
 
 ## What's here
 
-- **`tmux-projects`** : auto-discovers your projects (and their active Claude
-  worktrees) and opens a session for each one modified in the last 14 days.
 - **`tmux.conf`** : beginner-friendly tmux config (mouse on, big scrollback,
-  intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard).
-  Installs to `~/.tmux.conf`.
-- **`net-status`** : tmux status segment showing which link carries traffic (`eth`, `wifi`, `vpn/eth`, `vpn/wifi`; a red `vpn/wifi!` means a VPN is riding Wi-Fi while Ethernet is up, so a Wi-Fi drop kills the VPN). Linked by `install.sh`, used in `status-right`.
+  intuitive `|` / `-` splits, vim-style pane nav, copy to the macOS clipboard,
+  obvious active-pane borders and labels, `prefix g` to the construct session).
+  Installed as `~/.tmux.conf`.
+- **`net-status`** : tmux status segment showing which link carries traffic
+  (`eth`, `wifi`, `vpn/eth`, `vpn/wifi`; a red `vpn/wifi!` means a VPN is riding
+  Wi-Fi while Ethernet is up, so a Wi-Fi drop kills the VPN). Linked into
+  `~/.local/bin` by `install.sh`, used in `status-right`. macOS only; shows
+  nothing if it is not installed.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
 - **`LAZYVIM.md`** : LazyVim survival guide + a VSCode-to-LazyVim keymap cheatsheet.
-- **`install.sh`** : symlinks the command onto your PATH, installs the tmux config, and sets up Neovim + LazyVim for the optional editor pane.
+- **`install.sh`** : links the tmux config and `net-status`, and sets up Neovim +
+  LazyVim.
 
-## Folder convention
-
-Two layouts are supported, and the launcher figures out which one a machine uses:
-
-- **nested** — `<dev-root>/<category>/<project>`, e.g. `~/Development/oracle/oci-api`
-  (each top-level folder is a *category*; each of its subfolders is a *project*).
-- **flat** — `<dev-root>/<project>`, e.g. `~/Development/oci-api`
-  (each top-level folder is a *project*).
-
-By default (`LAYOUT=auto`) it decides per top-level folder: a git repo (or a
-folder with no subfolders) is a project, and a folder that *contains* subfolders
-is a category to descend into. So auto also handles a **mixed** root — some loose
-repos alongside some category folders — and the same checkout works unchanged on a
-nested work Mac and a flat personal Mac. Force one interpretation with
-`LAYOUT=flat`/`nested` in the script, or the `DEV_LAYOUT` env var (see *Tweaking*).
-
-The dev root is likewise detected automatically: it uses `$DEV_ROOT` if set,
-otherwise the first of `~/Developer`, `~/Development`, `~/dev`, `~/code` that exists.
-
-## Claude Code worktrees
-
-When `INCLUDE_WORKTREES` is on (the default), each repo is also asked — via
-`git worktree list` — for the isolated worktrees Claude Code creates under
-`<repo>/.claude/worktrees/`. Recently-touched ones get their own session named
-`<project>-<worktree>` (e.g. `slamlabs-site-hardcore-gagarin-40f5b2`), so they
-sort right under their parent repo in `tmux ls` / `prefix s`.
-
-A worktree is judged active on its **own** files, independent of the parent repo,
-so a worktree can open even when the main project is idle (and vice-versa). Gone,
-prunable, or locked worktrees are skipped. Because worktrees exist for Claude
-work, they auto-launch `claude` when `START_CLAUDE_IN_WORKTREES` is `true` —
-separately from the `START_CLAUDE` toggle for regular projects.
-
-## Editor pane (LazyVim, optional)
-
-Set `OPEN_NVIM=true` to give every session a second pane on the right running
-**[LazyVim](https://www.lazyvim.org)** (a Neovim-based, IDE-like setup) in the
-project directory. By default (`false`) each session is a single full-width
-pane. `install.sh` installs Neovim, `ripgrep`/`fd`/`lazygit`, and a Nerd Font,
-then drops in the LazyVim starter config, so the editor is ready either way.
-
-For icons to render you need a Nerd Font (the installer adds **JetBrainsMono Nerd
-Font**): in Apple Terminal, Settings → Profiles → Text → Font.
-
-New to LazyVim? See **`LAZYVIM.md`** for a survival guide and a VSCode-to-LazyVim
-keymap cheatsheet. The one thing to remember: the leader key is `Space`, and
-pressing `Space` (then pausing) shows a menu of every command.
-
-## Install
+## Install (or update after pulling)
 
 Requires [Homebrew](https://brew.sh).
 
 ```bash
 brew install tmux
-git clone https://github.com/jeffjp/tmux-projects.git
+git clone https://github.com/jeffjp/tmux-projects.git   # first time only
 cd tmux-projects
-./install.sh
+./install.sh          # safe to re-run; also removes the old launcher's link
+tmux source-file ~/.tmux.conf   # if tmux is already running (or prefix r)
 ```
 
-Open a new terminal and run `tmux-projects`.
+Inside tmux (prefix is `Ctrl-b`): `prefix g` construct session, `prefix w`
+window list, `prefix <n>` window n, `prefix |` / `prefix -` split panes,
+`prefix r` reload the config. See `CHEATSHEET.md` for the rest.
 
-## Usage
+## Neovim + LazyVim (optional)
 
-```bash
-tmux-projects     # open a session per recently-worked project, attach to the first
-```
+`install.sh` installs Neovim, `ripgrep`/`fd`/`lazygit`, and a Nerd Font, then
+drops in the **[LazyVim](https://www.lazyvim.org)** starter config (it leaves an
+existing `~/.config/nvim` alone). Open it in any pane with `nvim`.
 
-Inside tmux (prefix is `Ctrl-b`):
+For icons to render you need a Nerd Font (the installer adds **JetBrainsMono Nerd
+Font**): in Apple Terminal, Settings, Profiles, Text, Font.
 
-- `prefix s` : switch between projects
-- `prefix d` : detach (everything keeps running in the background)
-- `prefix |` / `prefix -` : split panes
-
-See `CHEATSHEET.md` for the rest.
-
-## Tweaking
-
-Edit the config block at the top of `tmux-projects`:
-
-- `DAYS` : how far back "recently worked on" reaches (default 14).
-- `LAYOUT` : `auto` (default), `flat`, or `nested`. Override per-machine without
-  editing via the `DEV_LAYOUT` env var, e.g. `DEV_LAYOUT=flat tmux-projects`.
-- `DEV_ROOT_CANDIDATES` : where your projects live. Override via `DEV_ROOT`.
-- `EXCLUDE_CATEGORIES` : top-level folders to never open.
-- `START_CLAUDE` : set `true` to auto-launch `claude` in each project session.
-- `OPEN_NVIM` : set `true` to add a right pane running LazyVim (nvim) (default `false`).
-- `INCLUDE_WORKTREES` : also open sessions for active Claude worktrees (default `true`).
-- `START_CLAUDE_IN_WORKTREES` : auto-launch `claude` in worktree sessions (default `true`).
+New to LazyVim? See **`LAZYVIM.md`** for a survival guide and a VSCode-to-LazyVim
+keymap cheatsheet. The one thing to remember: the leader key is `Space`, and
+pressing `Space` (then pausing) shows a menu of every command.
