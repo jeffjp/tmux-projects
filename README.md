@@ -23,8 +23,25 @@ live here was retired on 2026-09-28.
   nothing if it is not installed.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
 - **`LAZYVIM.md`** : LazyVim survival guide + a VSCode-to-LazyVim keymap cheatsheet.
+- **`bootstrap-mac.sh`** + **`Brewfile`** : one-run setup of a fresh Mac for construct (below).
 - **`install.sh`** : links the tmux config and `net-status`, and sets up Neovim +
   LazyVim.
+
+## New Mac (construct and Claude Code)
+
+`bootstrap-mac.sh` sets up a fresh Mac to run construct: it checks for the
+Command Line Tools and Homebrew (and prints the command if either is missing,
+since both need a click or a password), installs the `Brewfile` packages and
+the Claude Code CLI, adds the `~/.zshrc` lines construct uses, sets the git
+global ignore, then runs `install.sh`. Safe to re-run; no secrets in it.
+
+```bash
+./bootstrap-mac.sh              # tools, shell, tmux setup
+./bootstrap-mac.sh --always-on  # also no sleep, lid closed, no display (sudo)
+```
+
+It ends with the by-hand list (logins, tokens, keys). Copying repos and Claude
+state from the old Mac is in construct's `docs/WORKFLOW.md` (New machine).
 
 ## Install (or update after pulling)
 
