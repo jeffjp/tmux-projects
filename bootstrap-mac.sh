@@ -21,6 +21,7 @@ for arg in "$@"; do
 done
 
 say() { printf '\n== %s\n' "$*"; }
+export PATH="$HOME/.local/bin:$PATH"   # claude and net-status live here
 
 [ "$(uname -s)" = Darwin ] || { echo "macOS only" >&2; exit 1; }
 
