@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Install Jeff's tmux setup: link the tmux config and the net-status helper,
+# Install Jeff's tmux setup: link the tmux config and the net-status and
+# claude-attn helpers, register claude-attn's hooks in ~/.claude/settings.json,
 # and set up Neovim + LazyVim. Safe to re-run. Backs up any existing real
-# ~/.tmux.conf.
+# ~/.tmux.conf and the Claude settings file before changing them.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -11,6 +12,8 @@ bindir="$HOME/.local/bin"
 mkdir -p "$bindir"
 ln -sf "$here/net-status" "$bindir/net-status"   # tmux status segment: which link carries traffic
 echo "linked $bindir/net-status -> $here/net-status"
+ln -sf "$here/claude-attn" "$bindir/claude-attn"  # Claude Code hook: marks windows waiting on you
+echo "linked $bindir/claude-attn -> $here/claude-attn"
 # The session-per-project launcher was retired 2026-09-28; drop its old link
 # if it still points into this checkout.
 if [ -L "$bindir/tmux-projects" ] && [ ! -e "$bindir/tmux-projects" -o "$(readlink "$bindir/tmux-projects")" = "$here/tmux-projects" ]; then
@@ -34,7 +37,15 @@ fi
 ln -sf "$here/tmux.conf" "$target"
 echo "linked $target -> $here/tmux.conf"
 
-# 3) Neovim + LazyVim (optional editor; run `nvim` in any pane). This installs
+# 3) Register the claude-attn hooks (idempotent; running Claude sessions pick
+#    them up at their next event). Skipped when Claude Code or jq is missing.
+if [ -d "$HOME/.claude" ] && command -v jq >/dev/null 2>&1; then
+  "$here/claude-attn" install
+else
+  echo "NOTE: skipped claude-attn hooks (no ~/.claude or no jq); run '$here/claude-attn install' later"
+fi
+
+# 4) Neovim + LazyVim (optional editor; run `nvim` in any pane). This installs
 #    Neovim + tools + a Nerd Font and drops in the LazyVim starter, without
 #    clobbering an existing config.
 if command -v brew >/dev/null 2>&1; then

@@ -21,11 +21,16 @@ live here was retired on 2026-09-28.
   Wi-Fi while Ethernet is up, so a Wi-Fi drop kills the VPN). Linked into
   `~/.local/bin` by `install.sh`, used in `status-right`. macOS only; shows
   nothing if it is not installed.
+- **`claude-attn`** : Claude Code hook that marks a window in the window list
+  when the Claude session in it waits on you (`?` a dialog is open, `!` the
+  turn is over, `x` it stopped on an error). Linked into `~/.local/bin` and
+  registered in `~/.claude/settings.json` by `install.sh`. See "Attention
+  marks" below.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
 - **`LAZYVIM.md`** : LazyVim survival guide + a VSCode-to-LazyVim keymap cheatsheet.
 - **`bootstrap-mac.sh`** + **`Brewfile`** : one-run setup of a fresh Mac for construct (below).
-- **`install.sh`** : links the tmux config and `net-status`, and sets up Neovim +
-  LazyVim.
+- **`install.sh`** : links the tmux config, `net-status` and `claude-attn`,
+  registers the `claude-attn` hooks, and sets up Neovim + LazyVim.
 
 ## New Mac (construct and Claude Code)
 
@@ -58,6 +63,39 @@ tmux source-file ~/.tmux.conf   # if tmux is already running (or prefix r)
 Inside tmux (prefix is `Ctrl-b`): `prefix g` construct session, `prefix w`
 window list, `prefix <n>` window n, `prefix |` / `prefix -` split panes,
 `prefix r` reload the config. See `CHEATSHEET.md` for the rest.
+
+## Attention marks (claude-attn, added 2026-11-18)
+
+With several Claude windows open, the window list (row 1) shows which ones
+wait on you, so you do not have to cycle through them:
+
+| Mark | Meaning | Clears when |
+|---|---|---|
+| `?` | a dialog is open: a question, a permission prompt, plan approval | you answer it |
+| `!` | the turn is over (or it sits at the prompt, or at the folder-trust prompt of a new workspace) | you send the next prompt |
+| `x` | it stopped on an API error | you send the next prompt |
+| none | it is working, or no Claude runs there | |
+
+Inactive marked windows turn yellow; the active window keeps its blue and
+shows the mark in yellow. You still answer in that window.
+
+How it works: `claude-attn` runs as a Claude Code hook on a handful of events
+(prompt submitted, permission or question dialog, tool finished, turn over,
+session start and end) and sets window options on its own tmux window,
+found from `$TMUX_PANE`: `@attn` (state), `@attn_mark`, `@attn_since` and
+`@attn_msg` (one line: the question, the tool asking permission, or the last
+line of the reply). `tmux.conf` shows `@attn_mark`; construct's
+`bin/ws-status --board` reads the rest. Outside tmux it does nothing. The hook
+always exits 0 and prints nothing; each call takes a few milliseconds.
+
+- Register or remove: `claude-attn install` / `claude-attn uninstall`
+  (`install.sh` runs the first). Running sessions pick the change up at their
+  next event; no restart needed.
+- Inspect a window: `claude-attn show` (this window) or `claude-attn show <target>`.
+- Not detected: an interrupt (Esc or Ctrl-C mid-turn) fires no hook event,
+  so that window keeps no mark until the next prompt. You were in it anyway.
+- The hook entries are guarded like Orca's were: if `~/.local/bin/claude-attn`
+  is missing, the entry just drains its input and exits.
 
 ## Neovim + LazyVim (optional)
 
