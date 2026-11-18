@@ -1,0 +1,170 @@
+#!/bin/sh
+# claude-attn: mark a tmux window when the Claude Code session in it is
+# waiting on you, so the window list shows which agents need attention.
+#
+# Hook mode (registered in ~/.claude/settings.json by `claude-attn install`):
+#   claude-attn <HookEvent>        hook JSON on stdin; prints nothing, exits 0
+# Admin mode:
+#   claude-attn install            add the hook entries to ~/.claude/settings.json
+#                                  (idempotent, backs the file up first)
+#   claude-attn uninstall          remove them again
+#   claude-attn show [target]      print the window's state (default: this window)
+#
+# State lives in four tmux window options on the hook's own window (resolved
+# from $TMUX_PANE, never from the window name):
+#   @attn        working | bg | done | idle | ask | perm | plan | trust | error
+#   @attn_mark   the window-list mark: "?" a dialog is open (question,
+#                permission, plan), "!" the turn is over and it waits for you,
+#                "x" it stopped on an error, empty while it works
+#   @attn_since  epoch seconds of the last state change
+#   @attn_msg    one short line: the question, the tool asking permission
+#                (with Claude's own description, never the command), or the
+#                last line of the final reply. Assistant text only, never tool
+#                output; cut to 100 characters.
+# tmux.conf shows @attn_mark in window-status-format; ws-status (ocp-construct)
+# reads the rest. Outside tmux (no $TMUX_PANE) the hook does nothing.
+#
+# Which events mean what was measured on Claude Code 2.1.327 (2026-11-18):
+#   SessionStart (startup/resume/clear)  -> idle; never fires at the folder-
+#                                           trust prompt (ws-launch sets trust)
+#   UserPromptSubmit                     -> working
+#   PermissionRequest                    -> ask (AskUserQuestion), plan
+#                                           (ExitPlanMode) or perm; only fires
+#                                           when a dialog will show, not for
+#                                           auto-mode approvals
+#   Notification permission_prompt       -> perm (backup, ~6 s after the dialog)
+#   Notification idle_prompt             -> idle if it still says working (an
+#                                           Esc interrupt fires no other event)
+#   PostToolUse / PostToolBatch          -> working (the dialog was answered)
+#   Stop                                 -> done, or bg with background tasks
+#   StopFailure                          -> error
+#   Elicitation / ElicitationResult      -> ask / working (MCP input dialogs)
+#   SessionEnd                           -> options removed
+# Touches: tmux window options only; install/uninstall edit
+# ~/.claude/settings.json. No secrets. Run by Claude Code, or by a human for
+# install.
+
+ev="${1:-}"
+
+# ---------------------------------------------------------------- admin mode
+settings="${CLAUDE_ATTN_SETTINGS:-$HOME/.claude/settings.json}"
+events_plain="SessionStart UserPromptSubmit PostToolBatch Notification Stop StopFailure SessionEnd ElicitationResult"
+events_matched="PermissionRequest PostToolUse Elicitation"
+
+# jq filter that drops every hook entry calling claude-attn, then empty slots
+strip='if .hooks then .hooks |= (with_entries(.value |= map(select(([.hooks[]?.command // ""] | map(test("claude-attn")) | any) | not))) | with_entries(select(.value | length > 0))) | (if (.hooks | length) == 0 then del(.hooks) else . end) else . end'
+
+write_settings() { # <jq filter> [args...]: rewrite settings in place via a temp file
+  f="$1"; shift
+  [ -f "$settings" ] || printf '{}\n' > "$settings"
+  cp -p "$settings" "$settings.bak-claude-attn" || return 1
+  tmp=$(mktemp "$settings.XXXXXX") || return 1
+  if jq "$@" "$f" "$settings" > "$tmp" && [ -s "$tmp" ]; then
+    cat "$tmp" > "$settings"; rm -f "$tmp"
+  else
+    rm -f "$tmp"; echo "claude-attn: jq failed; $settings unchanged" >&2; return 1
+  fi
+}
+
+case "$ev" in
+  install)
+    command -v jq >/dev/null 2>&1 || { echo "claude-attn: needs jq" >&2; exit 1; }
+    # The command is guarded like Orca's was: if the script is gone the hook
+    # just drains stdin, so a removed checkout never breaks a session.
+    add='def entry($e; $m): ({hooks: [{type: "command", timeout: 5,
+            command: ("c=\"$HOME/.local/bin/claude-attn\"; if [ -x \"$c\" ]; then \"$c\" " + $e + "; else cat >/dev/null; fi; exit 0")}]}
+            + (if $m then {matcher: "*"} else {} end));
+         reduce ($plain | split(" ")[]) as $e (.; .hooks[$e] = ((.hooks[$e] // []) + [entry($e; false)]))
+         | reduce ($matched | split(" ")[]) as $e (.; .hooks[$e] = ((.hooks[$e] // []) + [entry($e; true)]))'
+    write_settings "$strip | $add" --arg plain "$events_plain" --arg matched "$events_matched" || exit 1
+    echo "claude-attn: hooks registered in $settings (backup: $settings.bak-claude-attn)"
+    echo "claude-attn: running sessions pick them up at their next event; no restart needed"
+    exit 0 ;;
+  uninstall)
+    write_settings "$strip" || exit 1
+    echo "claude-attn: hooks removed from $settings (backup: $settings.bak-claude-attn)"
+    exit 0 ;;
+  show)
+    tgt="${2:-${TMUX_PANE:-}}"
+    tmux display-message -p -t "$tgt" '#{window_name}: #{?@attn,#{@attn},(none)} mark=#{@attn_mark} since=#{@attn_since} msg=#{@attn_msg}'
+    exit $? ;;
+  '' | -h | --help)
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0 ;;
+esac
+
+# ----------------------------------------------------------------- hook mode
+# Never fail the session and never print: everything below is best effort.
+exec 2>/dev/null
+in=$(cat)
+[ -n "${TMUX_PANE:-}" ] && [ -n "${TMUX:-}" ] || exit 0
+command -v tmux >/dev/null 2>&1 || exit 0
+t="$TMUX_PANE"
+now=$(date +%s)
+
+# set <state> <mark> <msg>
+set_state() {
+  # tmux reads an argument ending in ";" as a command separator
+  m="$3"; case "$m" in *\;) m="${m%;}." ;; esac
+  tmux set -w -t "$t" @attn "$1" \; set -w -t "$t" @attn_mark "$2" \
+       \; set -w -t "$t" @attn_since "$now" \; set -w -t "$t" @attn_msg "$m" >/dev/null 2>&1
+}
+# set_if <tmux condition format> <state> <mark> <msg>: one tmux call, the
+# condition is checked inside tmux against the window's current @attn
+set_if() {
+  tmux if-shell -F -t "$t" "$1" \
+    "set -w -t $t @attn '$2' ; set -w -t $t @attn_mark '$3' ; set -w -t $t @attn_since '$now' ; set -w -t $t @attn_msg '$4'" >/dev/null 2>&1
+}
+
+# jq helpers: one clean line of assistant text, at most 100 characters
+JQDEFS='def clean: gsub("[\u0000-\u001f\u007f]+"; " ") | gsub("\\*\\*|`"; "") | sub("^[\\s#>*-]+"; "") | gsub("\\s+"; " ") | sub("\\s+$"; "");
+def cut: if length > 100 then .[0:99] + "…" else . end;'
+q() { printf '%s' "$in" | jq -r "$JQDEFS $1" 2>/dev/null; }
+
+case "$ev" in
+  UserPromptSubmit|ElicitationResult)
+    set_state working "" "" ;;
+  PostToolUse|PostToolBatch)
+    # Tool activity proves it is working again (a dialog was answered, or a
+    # background task woke it). Skip the write when it already says so.
+    set_if '#{!=:#{@attn},working}' working "" "" ;;
+  SessionStart)
+    case "$(q '.source // ""')" in
+      startup|resume|clear) set_state idle "!" "at the prompt, nothing asked yet" ;;
+    esac ;;
+  PermissionRequest)
+    line=$(q 'if .tool_name == "AskUserQuestion" then
+                "ask\t" + (((.tool_input.questions // [])[0].question // "a question") | clean | cut)
+              elif .tool_name == "ExitPlanMode" then "plan\tplan approval"
+              else "perm\t" + ("permission: " + (.tool_name // "a tool")
+                     + (if ((.tool_input.description // "") | type) == "string" and (.tool_input.description // "") != ""
+                        then ": " + (.tool_input.description | clean) else "" end) | cut)
+              end')
+    st=${line%%"	"*}; msg=${line#*"	"}
+    [ -n "$st" ] && set_state "$st" "?" "$msg" ;;
+  Notification)
+    case "$(q '.notification_type // ""')" in
+      permission_prompt) set_if '#{?#{m/r:^(ask|perm|plan)$,#{@attn}},0,1}' perm "?" "permission prompt" ;;
+      idle_prompt)       set_if '#{==:#{@attn},working}' idle "!" "at the prompt (interrupted?)" ;;
+    esac ;;
+  Elicitation)
+    set_state ask "?" "$(q '"MCP input requested by " + (.mcp_server_name // .server_name // "a server") | cut')" ;;
+  Stop)
+    line=$(q 'if ((.background_tasks // []) | length) > 0 then
+                "bg\t" + "\((.background_tasks | length)) background task(s) running"
+              else "done\t" + ((.last_assistant_message // "") | split("\n") | map(clean) | map(select(length > 0))
+                     | ((map(select(test("\\?$"))) | last) // last // "turn finished") | cut)
+              end')
+    st=${line%%"	"*}; msg=${line#*"	"}
+    case "$st" in
+      bg)   set_state bg "" "$msg" ;;
+      done) set_state done "!" "$msg" ;;
+      *)    set_state done "!" "turn finished" ;;
+    esac ;;
+  StopFailure)
+    set_state error "x" "$(q '"stopped on an error: " + ((.error // .error_type // .reason // "unknown") | tostring | clean) | cut')" ;;
+  SessionEnd)
+    tmux set -w -u -t "$t" @attn \; set -w -u -t "$t" @attn_mark \
+         \; set -w -u -t "$t" @attn_since \; set -w -u -t "$t" @attn_msg >/dev/null 2>&1 ;;
+esac
+exit 0
