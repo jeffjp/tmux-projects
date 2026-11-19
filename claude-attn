@@ -12,15 +12,22 @@
 #
 # State lives in four tmux window options on the hook's own window (resolved
 # from $TMUX_PANE, never from the window name):
-#   @attn        working | bg | done | idle | ask | perm | plan | trust | error
+#   @attn        working | done | bgwait | bg | idle | ask | perm | plan |
+#                trust | error. bgwait and bg: the turn is over but background
+#                tasks (shells, agents) still run; bgwait when the reply ends on
+#                a question, bg when it does not (for example a pipeline watch
+#                that the task's finish will wake)
 #   @attn_mark   the window-list mark: "?" a dialog is open (question,
-#                permission, plan), "!" the turn is over and it waits for you,
-#                "x" it stopped on an error, empty while it works
+#                permission, plan), "!" the turn is over and it waits for you
+#                (done, bgwait, idle, trust), "~" the turn is over and
+#                background tasks run with nothing asked (bg), "x" it stopped
+#                on an error, empty while it works
 #   @attn_since  epoch seconds of the last state change
 #   @attn_msg    one short line: the question, the tool asking permission
 #                (with Claude's own description, never the command), or the
 #                last line of the final reply. Assistant text only, never tool
-#                output; cut to 100 characters.
+#                output; cut to 100 characters. bgwait and bg add
+#                "(N background task(s) running)" after the line.
 # tmux.conf shows @attn_mark in window-status-format; ws-status (ocp-construct)
 # reads the rest. Outside tmux (no $TMUX_PANE) the hook does nothing.
 #
@@ -36,7 +43,9 @@
 #   Notification idle_prompt             -> idle if it still says working (an
 #                                           Esc interrupt fires no other event)
 #   PostToolUse / PostToolBatch          -> working (the dialog was answered)
-#   Stop                                 -> done, or bg with background tasks
+#   Stop                                 -> done; with background_tasks not
+#                                           empty, bgwait if one of the last 3
+#                                           lines ends in "?", else bg
 #   StopFailure                          -> error
 #   Elicitation / ElicitationResult      -> ask / working (MCP input dialogs)
 #   SessionEnd                           -> options removed
@@ -118,7 +127,9 @@ set_if() {
 
 # jq helpers: one clean line of assistant text, at most 100 characters
 JQDEFS='def clean: gsub("[\u0000-\u001f\u007f]+"; " ") | gsub("\\*\\*|`"; "") | sub("^[\\s#>*-]+"; "") | gsub("\\s+"; " ") | sub("\\s+$"; "");
-def cut: if length > 100 then .[0:99] + "…" else . end;'
+def cutn($n): if length > $n then .[0:$n - 1] + "…" else . end;
+def cut: cutn(100);
+def lines: (.last_assistant_message // "") | tostring | split("\n") | map(clean) | map(select(length > 0));'
 q() { printf '%s' "$in" | jq -r "$JQDEFS $1" 2>/dev/null; }
 
 case "$ev" in
@@ -150,16 +161,26 @@ case "$ev" in
   Elicitation)
     set_state ask "?" "$(q '"MCP input requested by " + (.mcp_server_name // .server_name // "a server") | cut')" ;;
   Stop)
-    line=$(q 'if ((.background_tasks // []) | length) > 0 then
-                "bg\t" + "\((.background_tasks | length)) background task(s) running"
-              else "done\t" + ((.last_assistant_message // "") | split("\n") | map(clean) | map(select(length > 0))
-                     | ((map(select(test("\\?$"))) | last) // last // "turn finished") | cut)
-              end')
+    # With background tasks alive the turn is still over: keep the reply's
+    # line. A question in its last 3 lines waits on you (bgwait, "!"); else
+    # bg ("~"), usually a watch that the task's finish wakes. The count goes
+    # after the line, which is cut first so the count always fits.
+    line=$(q '(try ((.background_tasks // []) | length) catch 0) as $n
+              | lines as $l
+              | if $n > 0 then
+                  "\($n) background task\(if $n == 1 then "" else "s" end) running" as $c
+                  | ($l[-3:] | map(select(test("\\?$"))) | last) as $qq
+                  | if $qq then "bgwait\t" + ($qq | cutn(97 - ($c | length))) + " (" + $c + ")"
+                    elif ($l | length) > 0 then "bg\t" + ($l | last | cutn(97 - ($c | length))) + " (" + $c + ")"
+                    else "bg\t" + $c end
+                else "done\t" + ((($l | map(select(test("\\?$"))) | last) // ($l | last) // "turn finished") | cut)
+                end')
     st=${line%%"	"*}; msg=${line#*"	"}
     case "$st" in
-      bg)   set_state bg "" "$msg" ;;
-      done) set_state done "!" "$msg" ;;
-      *)    set_state done "!" "turn finished" ;;
+      bgwait) set_state bgwait "!" "$msg" ;;
+      bg)     set_state bg "~" "$msg" ;;
+      done)   set_state done "!" "$msg" ;;
+      *)      set_state done "!" "turn finished" ;;
     esac ;;
   StopFailure)
     set_state error "x" "$(q '"stopped on an error: " + ((.error // .error_type // .reason // "unknown") | tostring | clean) | cut')" ;;
