@@ -23,7 +23,8 @@ live here was retired on 2026-09-28.
   nothing if it is not installed.
 - **`claude-attn`** : Claude Code hook that marks a window in the window list
   when the Claude session in it waits on you (`?` a dialog is open, `!` the
-  turn is over, `x` it stopped on an error). Linked into `~/.local/bin` and
+  turn is over, `~` the turn is over but background tasks still run and
+  nothing was asked, `x` it stopped on an error). Linked into `~/.local/bin` and
   registered in `~/.claude/settings.json` by `install.sh`. See "Attention
   marks" below.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
@@ -72,12 +73,21 @@ wait on you, so you do not have to cycle through them:
 | Mark | Meaning | Clears when |
 |---|---|---|
 | `?` | a dialog is open: a question, a permission prompt, plan approval | you answer it |
-| `!` | the turn is over (or it sits at the prompt, or at the folder-trust prompt of a new workspace) | you send the next prompt |
+| `!` | the turn is over (or it sits at the prompt, or at the folder-trust prompt of a new workspace); also when background tasks still run but the reply ends on a question | you send the next prompt |
+| `~` (grey) | the turn is over, background tasks still run and the reply asked nothing (usually a watch that the task's finish wakes) | the task wakes it, or you send the next prompt |
 | `x` | it stopped on an API error | you send the next prompt |
 | none | it is working, or no Claude runs there | |
 
-Inactive marked windows turn yellow; the active window keeps its blue and
-shows the mark in yellow. You still answer in that window.
+Inactive marked windows turn yellow (grey for `~`); the active window keeps
+its blue and shows the mark in yellow (light grey for `~`). You still answer
+in that window.
+
+Background tasks (added 2026-11-19): when a turn ends while a shell or agent
+still runs in the background, the hook keeps the reply's last line and adds
+"(N background task(s) running)". If one of the last three lines ends in `?`
+it is a question for you (`@attn` `bgwait`, mark `!`); otherwise `bg`, mark
+`~`. Before this, every such turn showed no mark and only the task count, so
+a worker that asked "Go to apply?" looked busy for as long as its shell ran.
 
 How it works: `claude-attn` runs as a Claude Code hook on a handful of events
 (prompt submitted, permission or question dialog, tool finished, turn over,
