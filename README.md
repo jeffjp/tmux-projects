@@ -24,7 +24,8 @@ live here was retired on 2026-09-28.
 - **`claude-attn`** : Claude Code hook that marks a window in the window list
   when the Claude session in it waits on you (`?` a dialog is open, `!` the
   turn is over, `~` the turn is over but background tasks still run and
-  nothing was asked, `x` it stopped on an error). Linked into `~/.local/bin` and
+  nothing was asked, `x` it stopped on an error), yellow when it is new to
+  you and grey once you have looked. Linked into `~/.local/bin` and
   registered in `~/.claude/settings.json` by `install.sh`. See "Attention
   marks" below.
 - **`CHEATSHEET.md`** : the tmux keys worth memorizing.
@@ -78,9 +79,26 @@ wait on you, so you do not have to cycle through them:
 | `x` | it stopped on an API error | you send the next prompt |
 | none | it is working, or no Claude runs there | |
 
-Inactive marked windows turn yellow (grey for `~`); the active window keeps
-its blue and shows the mark in yellow (light grey for `~`). You still answer
-in that window.
+Yellow means new, grey means quiet (seen state, added 2026-11-24). Before
+this every parked worker stayed yellow until its next prompt, so with a dozen
+of them the whole row was yellow and said nothing.
+
+| Inactive window looks like | Meaning |
+|---|---|
+| yellow block, `!3:name` | the turn ended since you last looked |
+| yellow block, `?3:name` or `x3:name` | a dialog or an error: stays yellow until dealt with |
+| yellow block, `!3:name` (folder trust) | the folder-trust prompt of a new workspace: stays yellow until answered |
+| plain grey row with a yellow `!` | still waiting, but you have seen it, or it sits at a fresh prompt with nothing asked (`@attn` `idle`) |
+| grey block, `~3:name` | background tasks run, nothing asked |
+
+A finished turn counts as seen once its window has been the active one, with
+the terminal focused, for 3 seconds without a change. Flipping past it
+(next-window, the chooser) in under 3 seconds does not count, nor does a
+window that is active while you are in another app; it turns grey 3 seconds
+after you come back. A turn that ends while you watch the window goes grey
+after the same 3 seconds. The next turn end makes it yellow again. The active
+window keeps its blue and shows the mark in yellow (new) or light grey
+(quiet). You still answer in that window.
 
 Background tasks (added 2026-11-19): when a turn ends while a shell or agent
 still runs in the background, the hook keeps the reply's last line and adds
@@ -94,14 +112,31 @@ How it works: `claude-attn` runs as a Claude Code hook on a handful of events
 session start and end) and sets window options on its own tmux window,
 found from `$TMUX_PANE`: `@attn` (state), `@attn_mark`, `@attn_since` and
 `@attn_msg` (one line: the question, the tool asking permission, or the last
-line of the reply). `tmux.conf` shows `@attn_mark`; construct's
-`bin/ws-status --board` reads the rest. Outside tmux it does nothing. The hook
-always exits 0 and prints nothing; each call takes a few milliseconds.
+line of the reply), and it clears `@attn_seen`. `tmux.conf` shows
+`@attn_mark` and colours it; construct's `bin/ws-status --board` reads the
+rest and prints `new` or `seen` next to each waiting row. Outside tmux it
+does nothing. The hook always exits 0 and prints nothing; a call takes about
+40 to 60 ms, most of it starting `jq` and `tmux`.
+
+Seen state lives in `tmux.conf`, not in the hook: tmux hooks on window
+change, session switch and terminal focus bump a per-session counter
+(`@attn_tick`) and run the user hook `@attn-arm`, which schedules a check 3
+seconds out inside tmux (`run -b -d 3 -C`: no shell, never blocks). The check
+sets `@attn_seen` to 1 only if the counter and the window's `@attn_since` are
+unchanged, the window is still active and still `done` or `bgwait`, and a
+focused client shows its session (`client_flags`). At each `done` or `bgwait`
+the hook runs `@attn-arm` itself (`set-hook -R`), which covers a turn that
+ends while you watch. On a server still running an older `tmux.conf` that
+call fails quietly and the rest of the update stands.
 
 - Register or remove: `claude-attn install` / `claude-attn uninstall`
   (`install.sh` runs the first). Running sessions pick the change up at their
   next event; no restart needed.
-- Inspect a window: `claude-attn show` (this window) or `claude-attn show <target>`.
+- Inspect a window: `claude-attn show` (this window) or `claude-attn show <target>`;
+  `seen=1` means it has been looked at.
+- After `tmux source-file ~/.tmux.conf` the windows already parked have no
+  seen flag yet, so they all show yellow until you visit each for 3 seconds
+  or its next turn ends. Idle ones turn grey at once.
 - Not detected: an interrupt (Esc or Ctrl-C mid-turn) fires no hook event,
   so that window keeps no mark until the next prompt. You were in it anyway.
 - The hook entries are guarded like Orca's were: if `~/.local/bin/claude-attn`

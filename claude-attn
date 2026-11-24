@@ -10,7 +10,7 @@
 #   claude-attn uninstall          remove them again
 #   claude-attn show [target]      print the window's state (default: this window)
 #
-# State lives in four tmux window options on the hook's own window (resolved
+# State lives in five tmux window options on the hook's own window (resolved
 # from $TMUX_PANE, never from the window name):
 #   @attn        working | done | bgwait | bg | idle | ask | perm | plan |
 #                trust | error. bgwait and bg: the turn is over but background
@@ -23,6 +23,12 @@
 #                background tasks run with nothing asked (bg), "x" it stopped
 #                on an error, empty while it works
 #   @attn_since  epoch seconds of the last state change
+#   @attn_seen   1 once a finished turn (done, bgwait) has been in front of
+#                you for 3 seconds with the terminal focused; tmux.conf sets
+#                it (hook @attn-arm) and paints a seen "!" grey. Cleared here
+#                on every state change. At each done or bgwait the hook runs
+#                @attn-arm itself, so a turn that ends while you watch also
+#                turns grey; without that tmux.conf the call is a no-op
 #   @attn_msg    one short line: the question, the tool asking permission
 #                (with Claude's own description, never the command), or the
 #                last line of the final reply. Assistant text only, never tool
@@ -95,7 +101,7 @@ case "$ev" in
     exit 0 ;;
   show)
     tgt="${2:-${TMUX_PANE:-}}"
-    tmux display-message -p -t "$tgt" '#{window_name}: #{?@attn,#{@attn},(none)} mark=#{@attn_mark} since=#{@attn_since} msg=#{@attn_msg}'
+    tmux display-message -p -t "$tgt" '#{window_name}: #{?@attn,#{@attn},(none)} mark=#{@attn_mark} seen=#{@attn_seen} since=#{@attn_since} msg=#{@attn_msg}'
     exit $? ;;
   '' | -h | --help)
     sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -111,18 +117,28 @@ command -v tmux >/dev/null 2>&1 || exit 0
 t="$TMUX_PANE"
 now=$(date +%s)
 
-# set <state> <mark> <msg>
+# set <state> <mark> <msg>: also clears @attn_seen; done and bgwait then run
+# tmux.conf's @attn-arm (last, so a server without it fails only that step)
 set_state() {
   # tmux reads an argument ending in ";" as a command separator
   m="$3"; case "$m" in *\;) m="${m%;}." ;; esac
-  tmux set -w -t "$t" @attn "$1" \; set -w -t "$t" @attn_mark "$2" \
-       \; set -w -t "$t" @attn_since "$now" \; set -w -t "$t" @attn_msg "$m" >/dev/null 2>&1
+  case "$1" in
+    done|bgwait)
+      tmux set -w -t "$t" @attn "$1" \; set -w -t "$t" @attn_mark "$2" \
+           \; set -w -t "$t" @attn_since "$now" \; set -w -t "$t" @attn_msg "$m" \
+           \; set -w -u -t "$t" @attn_seen \; set-hook -R -t "$t" @attn-arm >/dev/null 2>&1 ;;
+    *)
+      tmux set -w -t "$t" @attn "$1" \; set -w -t "$t" @attn_mark "$2" \
+           \; set -w -t "$t" @attn_since "$now" \; set -w -t "$t" @attn_msg "$m" \
+           \; set -w -u -t "$t" @attn_seen >/dev/null 2>&1 ;;
+  esac
 }
 # set_if <tmux condition format> <state> <mark> <msg>: one tmux call, the
-# condition is checked inside tmux against the window's current @attn
+# condition is checked inside tmux against the window's current @attn.
+# Used only for working, idle and perm, which are never "seen".
 set_if() {
   tmux if-shell -F -t "$t" "$1" \
-    "set -w -t $t @attn '$2' ; set -w -t $t @attn_mark '$3' ; set -w -t $t @attn_since '$now' ; set -w -t $t @attn_msg '$4'" >/dev/null 2>&1
+    "set -w -t $t @attn '$2' ; set -w -t $t @attn_mark '$3' ; set -w -t $t @attn_since '$now' ; set -w -t $t @attn_msg '$4' ; set -w -u -t $t @attn_seen" >/dev/null 2>&1
 }
 
 # jq helpers: one clean line of assistant text, at most 100 characters
@@ -186,6 +202,7 @@ case "$ev" in
     set_state error "x" "$(q '"stopped on an error: " + ((.error // .error_type // .reason // "unknown") | tostring | clean) | cut')" ;;
   SessionEnd)
     tmux set -w -u -t "$t" @attn \; set -w -u -t "$t" @attn_mark \
-         \; set -w -u -t "$t" @attn_since \; set -w -u -t "$t" @attn_msg >/dev/null 2>&1 ;;
+         \; set -w -u -t "$t" @attn_since \; set -w -u -t "$t" @attn_msg \
+         \; set -w -u -t "$t" @attn_seen >/dev/null 2>&1 ;;
 esac
 exit 0
